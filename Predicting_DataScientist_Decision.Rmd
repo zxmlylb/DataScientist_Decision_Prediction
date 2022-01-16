@@ -1,0 +1,144 @@
+---
+title: "HW2 - Predicting Job Changes of Data Scientist"
+autor: "Bo Liu & Steven Shi"
+output: html_document
+---
+
+Topic
+In this assignment, we aim to apply the Linear Discriminant Analysis (LDA) method with given demographic, education, and professional experience,to predict whether data scientist will commit to job offer given by a company. Our model's prediction could be useful to reduce the cost and time that hiring company or human resources devote to job candidates. Further, our result could also help the company to improve their hiring advertisement strategy, so that they could reach their target candidates.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(MASS) # lda method
+library(gridExtra) # grid_arrange
+```
+
+```{r read data, include=FALSE}
+# kaggle datasets download -d arashnic/hr-analytics-job-change-of-data-scientists
+data <- read_csv("data/aug_train.csv")
+
+select_column <- c("city_development_index", "gender", "relevent_experience", "enrolled_university", "education_level", "major_discipline", "experience","company_size", "company_type","last_new_job", "training_hours")
+
+HR.train <- data %>% 
+  na.omit()
+```
+
+The Data Set
+Our data set is obtained from a Big Data company which wants to hiring data scientist who successfully passed some pre-hiring courses conducted by the company. The predictor provided by the data set includes the demographic backgrounds of the candidates like their city_development_index, gender; their previous professional experience like experience, previous company size and finally we are also given the education background like what type of degrees they obtained and major discipline of given candidates. We omit the observations that are incomplete or contains the NA value in our predictors. 
+
+link:https:https://www.kaggle.com/arashnic/hr-analytics-job-change-of-data-scientists
+
+*** Talk about City Development Index is a good predictor and Training Hours is not ***
+
+In exploratory data analysis, we explore some predictors and visualize their distribution in density functions. As can be seen from the figure 1, the city_development_index would be a good predictor to discriminate the target variable, because the two density functions have distinct means and standard deviation. On the other hand, the training_hours would not be a good predictor to distinguish the target variable, as the two density functions largely overlaps with each other, leaving with very similar mean and standard deviations in a normal distribution assumed by LDA model. Look through the summary of our target variable, we noticed that the mean of our target variable is 0.165, implying that the distribution of the our classier is imbalanced. It suggests that 16.5% of the candidates in our sample are classified as 0, not commit to the job offer, while 83.5% as 1. While we are not sure if this samples represents the true distribution of all the candidates, we will still consider the priors of LDA model matches priors of our sample, because in real world most candidates will not easily commit to the job offer.
+
+
+```{r summarize the dataset}
+summary(HR.train)
+head(HR.train)
+
+HR.train %>% 
+  ggplot() + 
+  geom_point(aes(x=training_hours, y =city_development_index , color= factor(target)), alpha=0.8) +
+  ggtitle("Selected Variables with Corresponding Label") +
+  xlab("Training Hours") +
+  ylab("City Development Index")
+
+# visualize density distributions of selected predictors
+g_city <- HR.train %>% 
+  ggplot()+
+  geom_density(aes(x=city_development_index, fill=factor(target)), alpha=0.4) +
+  ggtitle("Density Distribution of City Development Index") +
+  xlab("City Development Index") +
+  ylab("Density of City Development Index")
+g_training <- HR.train %>% 
+  ggplot()+
+  geom_density(aes(x=training_hours, fill=factor(target)), alpha=0.4) +
+  ggtitle("Density Distribution of Training Hours") +
+  xlab("Training Hours") +
+  ylab("Density of Training Hours")
+
+grid.arrange(g_city, g_training, nrow=2)
+```
+
+Predicting with LDA
+*** explain LDA model ***
+We implemented a linear discriminated analysis model to predict the target based on the factors we selected previously. We set the priors of our model as default in our sample. For categorical variables, lda model automatically changes them into numeric value in calculations.
+
+```{r predict with LDA}
+lda.model <- lda(factor(target) ~  city_development_index + gender + relevent_experience + enrolled_university + education_level + major_discipline + experience + company_size + company_type +last_new_job + training_hours, data = HR.train)
+
+prediction <- predict(lda.model, HR.train)
+
+data_with_pred <- HR.train %>% 
+  mutate(pred = prediction$class)
+```
+
+We plot the dot graph to visualize how our model predicts the target on two predictors: city_development_index and training_hours. We find that the prediction is consistent with our EDA, that city_development_index serves as better linear classier than training hours. We see a clear linear boundary in the y-axis, but not on the x-axis. 
+
+
+```{r visualize prediction}
+data_with_pred %>% 
+  ggplot() + 
+  geom_point(aes(x=training_hours, y =city_development_index , color= factor(pred)), alpha=0.4) +
+  ggtitle("Test")
+```
+
+```{r evaluation matrix}
+confusion <- table(data_with_pred$pred, HR.train$target)
+colnames(confusion) = c("Actual Negative", "Actual Positive")
+rownames(confusion) = c("Predict Negative", "Predict Positive")
+confusion
+
+accuracy <- (confusion[1,1] + confusion[2,2])/nrow(HR.train)
+sensitivity <- confusion[2,2]/(confusion[2,2] + confusion[1,2])
+specificity <- confusion[1,1]/(confusion[2,1] + confusion[1,1])
+false.discovery.rate <- confusion[1,2]/(confusion[1,2] + confusion[2,2])
+false.omission.rate <- confusion[2,1]/(confusion[2,1] + confusion[1,1])
+
+evaluation.table <- data.frame(accuracy, sensitivity, specificity, false.discovery.rate, false.omission.rate)
+evaluation.table
+
+# specificity: true withdraw/ false withdraw + true withdraw -> withdraw: company should not waste resources -> maximize
+# false discovery rate: false commit/ false commit + true commit -> minimize
+```
+The two metrics that are important to our model in real worlds are specificity and false discovery rate. The specificity describes how well our model are able to identify the negative classifiers, in other worlds, how well our model is able to predict the withdrawal of the candidates. A higher specificity implies that hiring company has a higher precision on predicting the candidate that are unlikely to commit to the job offer, which helps reduce the unnecessary cost and time. The second metrics - false positive rate describes how likely our model is going to make mistake in predicting the positive classifiers. It represents how well our model is able to predict the commitment of candidates to job offers. A lower false positive rate indicates the our model is making less false positive and having higher precision in predicting the positive classifier. We plot the two metrics on a dot graph with thresholds at an interval of 0.05. We find that the as the threshold increases, there is a trade-off between specificity and false discovery rate. For example, when the threshold is at 0.1, the false discovery rate is at its lowest 0.33, where the 
+specificity is at its lowest at 0.75. At this low threshold, the model can predict has the most accuracy in predicting if one candidate would commit to job offer, but worst accuracy in predicting if one would withdrawl. On the other hand, a high threshold such as 0.9 boosts the specificity value of the model, but increases the false discovery rate, making it extremely inaccurate in predicting the commitment of candidates, but highly accurate in predicting withdrawal. Given that most candidates in our sample belongs to the negative classifier, that is they end up committing to the job offers, we argue that it is best to allocate company's resources to those candidates that are extremely likely to commit to the offer. Thus, a lower threshold, which results in a lower false discovery rate, increases the accuracy in predicting the positive classifier.
+
+```{r choose threshold}
+spec.vec <- NULL
+false.vec <- NULL
+k.vec <- NULL
+num = 1
+for (k in seq(from=0.1, to=0.9, by = 0.05)){
+  data_with_pred_loop <- data_with_pred %>% 
+    mutate(pred = case_when(prediction$posterior[,2] >= k ~ 1,
+           TRUE ~ 0))
+  # create confusion table
+  confusion <- table(data_with_pred_loop$pred, HR.train$target)
+  specificity <- confusion[1,1]/(confusion[2,1] + confusion[1,1])
+  false.discovery.rate <- confusion[1,2]/(confusion[1,2] + confusion[2,2])
+  
+  # store in evaluation vectors
+  spec.vec[num] = specificity
+  false.vec[num] = false.discovery.rate
+  k.vec[num] = k
+  num = num + 1
+}
+
+eval.table <- data_frame(threshold=k.vec, specificity=spec.vec, false.discovery.rate=false.vec)
+eval.table
+eval.table %>% 
+  ggplot() +
+  geom_point(aes(x=specificity, y=false.discovery.rate, colour = "threshold")) +
+  geom_text(aes(x=specificity, y=false.discovery.rate, label=threshold), hjust=0, vjust=1.5) +
+  ggtitle("Ploting False Discovery Rate vs. Specificity") +
+  xlab("Specificity") +
+  ylab("False Discovery Rate")
+```
+
+Discussion
+
+*** Threshold value 0.15, 0.45, 0.75 ***
